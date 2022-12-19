@@ -39,6 +39,9 @@ ament_python_install_package(${PROJECT_NAME})
 install(PROGRAMS
   scripts/mpc_turtle.py
   scripts/turtle_mpc_node.py
+  scripts/example_offboard.py
+  scripts/mpc_quad.py
+  scripts/fixedwing_offboard.py
   DESTINATION lib/${PROJECT_NAME}
 )
 ament_package()

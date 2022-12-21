@@ -42,6 +42,8 @@ install(PROGRAMS
   scripts/example_offboard.py
   scripts/mpc_quad.py
   scripts/fixedwing_offboard.py
+  scripts/logger.py
+  scripts/test_script.py
   DESTINATION lib/${PROJECT_NAME}
 )
 ament_package()

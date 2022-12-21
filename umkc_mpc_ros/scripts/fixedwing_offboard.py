@@ -10,6 +10,7 @@ import numpy as np
 import mavros
 
 from rclpy.node import Node
+from std_msgs.msg import Float32
 from nav_msgs.msg import Path, Odometry
 from geometry_msgs.msg import PoseStamped, TwistStamped
 from mavros_msgs.msg import State, AttitudeTarget, PositionTarget
@@ -17,32 +18,43 @@ from mavros_msgs.srv import CommandBool, SetMode
 from umkc_mpc_ros import quaternion_tools
 
 from mavros.base import SENSOR_QOS
-
+from pymavlink import mavutil
 from math import cos, sin, pi
 
 ## GlOBAL OBSTACLE
-OBS_X = 2.0
-OBS_Y = 2.0
-OBS_VEL = 0.0
+OBS_X = -1000.0
+OBS_Y = -1000.0
+OBS_VEL = 0.00
 
 rob_diam = 1.0
-obs_diam = 0.65
+obs_diam = 3.0
 
 N = 10 #number of look ahead steps
 
-v_min = 15
-v_max = 15
-
+v_min = 14
+v_max = 16
 
 psi_rate_min = np.deg2rad(-60)
 psi_rate_max = np.deg2rad(60)#rad/s
 
 #target parameters
-x_target = 250.0
-y_target = 250.0
-psi_target = np.deg2rad(5.0)
+x_target = 0.0
+y_target = 3.0
+psi_target = np.deg2rad(45.0)
 target_velocity = 0.0
 
+# def send_airspeed_command(airspeed,master):
+#     master.mav.command_long_send(
+#     master.target_system, 
+#     master.target_component,
+#     mavutil.mavlink.MAV_CMD_DO_CHANGE_SPEED, #command
+#     0, #confirmation
+#     0, #Speed type (0=Airspeed, 1=Ground Speed, 2=Climb Speed, 3=Descent Speed)
+#     airspeed, #Speed #m/s
+#     -1, #Throttle (-1 indicates no change) % 
+#     0, 0, 0, 0 #ignore other parameters
+#     )
+#     print("change airspeed")
 
 class SimpleModel():
     """
@@ -112,7 +124,7 @@ class MPC():
         self.N = N
 
         """REFACTOR THIS ALLOW THE USER TO DEFINE THIS"""
-        self.Q = ca.diagcat(100.0, 100.0, 0.0) # weights for states
+        self.Q = ca.diagcat(1.0, 1.0, 1.0) # weights for states
         self.R = ca.diagcat(1.0, 1.0) # weights for controls
         self.lambda_safe = 1.0 #weight factor for obstacle avoidance
         
@@ -317,7 +329,6 @@ class MPC():
         return (self.u, self.X0)
 
 
-
 class FWOffboardNode(Node):
     def __init__(self):
         super().__init__('fixedwing_node')
@@ -339,9 +350,21 @@ class FWOffboardNode(Node):
         self.local_pos_pub = self.create_publisher(PoseStamped, 
         '/mavros/setpoint_position/local', 10)
 
+        self.attitude_rate_pub = self.create_publisher(
+            AttitudeTarget, '/mavros/setpoint_raw/attitude', 1)
+
+        self.body_velocity_pub = self.create_publisher(
+            Float32, 'airspeed', 1
+        )
+
         self.z_position = None        
         self.current_state = [None,None,None]
         self.pixhawk_sp  = PoseStamped()
+
+    def publish_body_velocity(self, body_velocity):
+        msg = Float32()
+        msg.data = float(body_velocity)
+        self.body_velocity_pub.publish(msg)
 
     def position_callback(self, msg):
         # self.get_logger().info('Position: {}'.format(self.odom))
@@ -366,16 +389,14 @@ class FWOffboardNode(Node):
         vel_msg.twist.linear.x = float(vx)
         vel_msg.twist.linear.y = float(vy)
         vel_msg.twist.linear.z = float(vz)
-
-        # vel_msg.twist.angular.z = float(psi_rate)
-
+        vel_msg.twist.angular.z = float(psi_rate)
         self.local_vel_pub.publish(vel_msg)
 
     def publish_position(self, x, y, z, yaw_d):
         self.pose = PoseStamped()
         self.pose.pose.position.x = float(x)
         self.pose.pose.position.y = float(y)
-        self.pose.pose.position.z = 15.0#float(z)
+        self.pose.pose.position.z = 9.7#float(z)
 
         if (yaw_d > np.deg2rad(180.0)):
             yaw_d = (-yaw_d - np.rad2deg(90.0))
@@ -399,21 +420,46 @@ class FWOffboardNode(Node):
         path.poses = []
         # header_name = 'map'
         
-        x_waypoints = np.array(x_waypoints[:,0])
-        y_waypoints = np.array(y_waypoints[:,0])
+        x_waypoints = np.array(x_waypoints)
+        y_waypoints = np.array(y_waypoints)
 
-        print(x_waypoints)
+        # x_waypoints = x_waypoints.flatten()
+        # y_waypoints = y_waypoints.flatten()
+
+        x_waypoints = x_waypoints[-1]
+        y_waypoints = y_waypoints[-1]
+
         for x,y in zip(x_waypoints, y_waypoints):
             point_pose = PoseStamped()
             # point_pose.header = self.create_header('base_link')
             point_pose.pose.position.x = float(x)
             point_pose.pose.position.y = float(y)
-            point_pose.pose.position.z = 15.0
+            point_pose.pose.position.z = 9.7
             # point_pose.pose.orientation.w = 1.0
             path.poses.append(point_pose)
             
         self.mpc_traj_publisher.publish(path)
-            
+
+    def publish_rate_commands(self, vx, vy, vz, thrust):
+        """publish rate commands"""
+        att = AttitudeTarget()
+        att.type_mask = 7 #ignore body rate
+        att.header.frame_id = 'base_link'
+        orientation = quaternion_tools.get_quaternion_from_euler(-0.25, 0.15,
+                                                                 0)
+        att.orientation.x = orientation[0]
+        att.orientation.y = orientation[1]
+        att.orientation.z = orientation[2]
+        att.orientation.w = orientation[3]
+
+        # att.header.stamp = self.get_clock().now().to_msg()
+        # att.type_mask =  128#0b00000000 #64 #64 #ignore orientation#0b00000000
+        # att.body_rate.x = 0.0#float(np.deg2rad(vx))
+        # att.body_rate.y = float(np.deg2rad(15))
+        # att.body_rate.z = 0.0
+        att.thrust = 0.75#abs(float(thrust))
+        self.attitude_rate_pub.publish(att)
+
 
 def compute_error(init , end):
     return m.dist(init, end)
@@ -445,6 +491,12 @@ def main(args=None):
     fw_mpc.init_solver()
     fw_mpc.define_bound_constraints()
     controls, states = fw_mpc.solve_mpc(start, end)    
+    
+    x_traj = states[0,:]
+    y_traj = states[1,:]
+    psi_traj = states[2,:]
+
+    idx_projection = 2
 
     while rclpy.ok():
         
@@ -452,6 +504,9 @@ def main(args=None):
         rclpy.spin_once(fixedwing_node)
 
         current_state = fixedwing_node.current_state
+        
+        current_state = [x_traj[idx_projection], 
+                    y_traj[idx_projection], psi_traj[idx_projection]]
 
         curr_pos = [current_state[0], current_state[1], current_state[2]]
         end_pos = [end[0], end[1], end[2]]
@@ -459,15 +514,19 @@ def main(args=None):
         #compute error
         error = compute_error(curr_pos[:-1], end_pos[:-1])
         print("lateral position: ", curr_pos[:-1])
-        if error <= 0.2:
+        if error <= 1.0:
             print("reached goal")
-            rclpy.shutdown()
-            return
+            #rclpy.shutdown()
+            #return
 
         time_1 = get_time_in_secs(fixedwing_node)
+
+        rclpy.spin_once(fixedwing_node)
+        current_state = fixedwing_node.current_state
+
         controls, states = fw_mpc.solve_mpc(current_state, end) 
         time_2 = get_time_in_secs(fixedwing_node)
-        #print("time to solve: ", time_2 - time_1)
+        # print("time to solve: ", time_2 - time_1)
         
         x_traj = states[0,:]
         y_traj = states[1,:]
@@ -477,10 +536,18 @@ def main(args=None):
         cmd_vel = float(controls[0])
         ang_vel_cmd = float(controls[1])
 
-        #publish the position
-        # fixedwing_node.publish_velocity(cmd_vel, 0.0, 0.0, psi_traj[1])
-        fixedwing_node.publish_position(x_traj[5], y_traj[5], 
-        fixedwing_node.z_position, psi_traj[1])
+        #publish the position and velocity
+        print("cmd_vel: ", cmd_vel)
+        vx = cmd_vel * cos(psi_traj[-1])
+        vy = cmd_vel * sin(psi_traj[-1])        
+        # fixedwing_node.publish_velocity(vx, vy, 0.0, ang_vel_cmd)
+        # fixedwing_node.publish_body_velocity(cmd_vel)
+
+        fixedwing_node.publish_position(x_traj[-1], 
+        y_traj[-1], 
+        fixedwing_node.z_position, 
+        psi_traj[-1])
+
         fixedwing_node.publish_path(x_traj, y_traj)
 
         rclpy.spin_once(fixedwing_node)

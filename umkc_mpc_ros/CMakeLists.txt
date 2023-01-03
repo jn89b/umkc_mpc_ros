@@ -44,6 +44,8 @@ install(PROGRAMS
   scripts/fixedwing_offboard.py
   scripts/logger.py
   scripts/test_script.py
+  scripts/turtle_prototype.py
+  scripts/fw_airplane_mpc.py
   DESTINATION lib/${PROJECT_NAME}
 )
 ament_package()

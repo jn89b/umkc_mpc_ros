@@ -42,49 +42,6 @@ sitl = None
 # print('Connecting to vehicle on: %s' % connection_string)
 vehicle = connect(connection_string, wait_ready=True)
 
-def arm_and_takeoff_nogps(aTargetAltitude):
-    """
-    Arms vehicle and fly to aTargetAltitude without GPS data.
-    """
-
-    ##### CONSTANTS #####
-    DEFAULT_TAKEOFF_THRUST = 0.7
-    SMOOTH_TAKEOFF_THRUST = 0.6
-
-    print("Basic pre-arm checks")
-    # Don't let the user try to arm until autopilot is ready
-    # If you need to disable the arming check,
-    # just comment it with your own responsibility.
-    while not vehicle.is_armable:
-        print(" Waiting for vehicle to initialise...")
-        time.sleep(1)
-
-
-    print("Arming motors")
-    #Copter should arm in GUIDED_NOGPS mode
-    #vehicle.mode = VehicleMode("GUIDED_NOGPS")
-    vehicle.armed = True
-
-    while not vehicle.armed:
-        print(" Waiting for arming...")
-        vehicle.armed = True
-        time.sleep(1)
-
-    print("Taking off!")
-
-    thrust = DEFAULT_TAKEOFF_THRUST
-    while True:
-        current_altitude = vehicle.location.global_relative_frame.alt
-        print(" Altitude: %f  Desired: %f" %
-              (current_altitude, aTargetAltitude))
-        if current_altitude >= aTargetAltitude*0.95: # Trigger just below target alt.
-            print("Reached target altitude")
-            break
-        elif current_altitude >= aTargetAltitude*0.6:
-            thrust = SMOOTH_TAKEOFF_THRUST
-        set_attitude(thrust = thrust)
-        time.sleep(0.2)
-
 def send_attitude_target(roll_angle = 0.0, pitch_angle = 0.0,
                          yaw_angle = None, yaw_rate = 0.0, use_yaw_rate = False,
                          thrust = 0.5):
@@ -98,6 +55,7 @@ def send_attitude_target(roll_angle = 0.0, pitch_angle = 0.0,
     if yaw_angle is None:
         # this value may be unused by the vehicle, depending on use_yaw_rate
         yaw_angle = vehicle.attitude.yaw
+    # print("yaw_angle: %f" % yaw_angle)
     # Thrust >  0.5: Ascend
     # Thrust == 0.5: Hold the altitude
     # Thrust <  0.5: Descend
@@ -157,7 +115,7 @@ def to_quaternion(roll = 0.0, pitch = 0.0, yaw = 0.0):
     return [w, x, y, z]
 
 # Take off 2.5m in GUIDED_NOGPS mode.
-arm_and_takeoff_nogps(2.5)
+# arm_and_takeoff_nogps(2.5)
 
 # Hold the position for 3 seconds.
 print("Hold position for 3 seconds")
@@ -171,18 +129,20 @@ print("Hold position for 3 seconds")
 
 # Move the drone forward and backward.
 # Note that it will be in front of original position due to inertia.
-print("Move forward")
-set_attitude(pitch_angle = -5, thrust = 0.3, duration = 3.21)
+# print("Move forward")
+# set_attitude(pitch_angle = -5, thrust = 0.5, duration = 3.21)
 
-print("Move backward")
-set_attitude(pitch_angle = 5, thrust = 0.3, duration = 3)
+# print("Move backward")
+# set_attitude(pitch_angle = 5, thrust = 0.5, duration = 3)
 
 print("Move right")
-set_attitude(roll_angle= 45, thrust = 0.5, duration = 10)
+set_attitude(roll_angle= 30, thrust = 0.25, duration = 10)
 
 print("Move left")
-set_attitude(roll_angle=-45, thrust = 0.5, duration = 10)
+set_attitude(roll_angle=-30, thrust = 0.25, duration = 10)
 
+# print("Control Yaw")
+# set_attitude(yaw_angle= 90, thrust = 0.3, duration = 10)
 
 # send_attitude_target(roll_angle=0, pitch_angle=0, yaw_angle=0, thrust=0.5)
 # print("Setting LAND mode...")

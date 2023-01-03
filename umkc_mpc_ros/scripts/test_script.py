@@ -51,7 +51,7 @@ def main(args=None):
         # pass
         # send_airspeed_command(master, 13.0) 
         if vel_info.airspeed != None:
-            send_airspeed_command(master, vel_info.airspeed)         
+            send_airspeed_command(master, 15)         
         #continue
         # mavlink_node.send_airspeed_command(airspeed=12)
         #print("sent airspeed")

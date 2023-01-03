@@ -55,7 +55,6 @@ class TurtleBotNode(Node):
         self.orientation_euler[1] = pitch 
         self.orientation_euler[2] = yaw
         
-        
     def move_turtle(self, linear_vel:float, angular_vel:float):
         """Moves turtlebot"""
         twist = Twist()
@@ -70,7 +69,7 @@ class TurtleBotNode(Node):
         inf = float('inf')
         
         lidar_vals = msg.ranges
-        
+
         #append detections if values not infinity or 0.0 
         for i, val in enumerate(lidar_vals):
             if val != inf:

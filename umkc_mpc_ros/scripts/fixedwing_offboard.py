@@ -351,7 +351,7 @@ class FWOffboardNode(Node):
         '/mavros/setpoint_position/local', 10)
 
         self.attitude_rate_pub = self.create_publisher(
-            AttitudeTarget, '/mavros/setpoint_raw/attitude', 1)
+            AttitudeTarget, '/mavros/setpoint_raw/attitude', 10)
 
         self.body_velocity_pub = self.create_publisher(
             Float32, 'airspeed', 1
@@ -443,20 +443,20 @@ class FWOffboardNode(Node):
     def publish_rate_commands(self, vx, vy, vz, thrust):
         """publish rate commands"""
         att = AttitudeTarget()
-        att.type_mask = 7 #ignore body rate
+        att.header.stamp = self.get_clock().now().to_msg()
+
         att.header.frame_id = 'base_link'
-        orientation = quaternion_tools.get_quaternion_from_euler(-0.25, 0.15,
+        orientation = quaternion_tools.get_quaternion_from_euler(20, 10,
                                                                  0)
         att.orientation.x = orientation[0]
         att.orientation.y = orientation[1]
         att.orientation.z = orientation[2]
         att.orientation.w = orientation[3]
 
-        # att.header.stamp = self.get_clock().now().to_msg()
-        # att.type_mask =  128#0b00000000 #64 #64 #ignore orientation#0b00000000
-        # att.body_rate.x = 0.0#float(np.deg2rad(vx))
-        # att.body_rate.y = float(np.deg2rad(15))
-        # att.body_rate.z = 0.0
+        att.type_mask = 0b00000100 #128#0b00000000 #64 #64 #ignore orientation#0b00000000
+        att.body_rate.x = 0.0 #float(np.deg2rad(vx))
+        att.body_rate.y = 0.0
+        att.body_rate.z = 0.0 #np.deg2rad(self.current_state[2])
         att.thrust = 0.75#abs(float(thrust))
         self.attitude_rate_pub.publish(att)
 
@@ -542,11 +542,11 @@ def main(args=None):
         vy = cmd_vel * sin(psi_traj[-1])        
         # fixedwing_node.publish_velocity(vx, vy, 0.0, ang_vel_cmd)
         # fixedwing_node.publish_body_velocity(cmd_vel)
-
-        fixedwing_node.publish_position(x_traj[-1], 
-        y_traj[-1], 
-        fixedwing_node.z_position, 
-        psi_traj[-1])
+        fixedwing_node.publish_rate_commands(vx, vy, 0.0, ang_vel_cmd)
+        # fixedwing_node.publish_position(x_traj[-1], 
+        # y_traj[-1], 
+        # fixedwing_node.z_position, 
+        # psi_traj[-1])
 
         fixedwing_node.publish_path(x_traj, y_traj)
 

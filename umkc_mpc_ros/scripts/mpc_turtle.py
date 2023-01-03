@@ -284,9 +284,6 @@ class MPC():
         obs_velocity = 0.0
         target_velocity = 0.0
         
-        # origin_obs_x = OBS_X
-        # origin_obs_y = OBS_Y
-        
         self.origin_obs_x = OBS_X + self.dt_val * obs_velocity
         self.origin_obs_y = OBS_Y #- self.dt_val * obs_velocity/2
 

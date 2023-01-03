@@ -87,11 +87,10 @@ class AirplaneSimpleModel():
         
         self.phi_fdot = self.u_phi
         self.theta_fdot = self.u_theta
+
+        ###!!!!!! From the PAPER ADD A NEGATIVE SIN BECAUSE OF SINE CONVENTION!!!!!!!###
         self.psi_fdot =  -(self.g * (ca.tan(self.phi_f) / self.v_cmd))
         self.airspeed_fdot = self.v_cmd
-        #self.psi_fdot = (self.g * ca.cos(self.theta_f) * (ca.tan(self.phi_f) / self.v_cmd)) 
-        #self.psi_fdot = (self.u_theta * ca.sin(self.phi_f)) + (self.u_psi * ca.cos(self.phi_f)) / ca.cos(self.theta_f) 
-
 
         self.z_dot = ca.vertcat(
             self.x_fdot,
@@ -329,7 +328,7 @@ def main(args=None):
         'v_cmd_min': 20,
         'v_cmd_max': 30,
         'theta_min': np.deg2rad(-25),
-        'theta_max': np.deg2rad(25),
+        'theta_max': np.deg2rad(10),
         'phi_min': np.deg2rad(-45),
         'phi_max': np.deg2rad(45),
     }  
@@ -346,8 +345,9 @@ def main(args=None):
         airplane_params=airplane_params
     )
 
-    start = [0, 0, 0, 0, 0, 0, 0]
-    goal = [Config.GOAL_X, Config.GOAL_Y, 10, 0, 0, 0, 0]
+    start = airplane_node.state_info
+    #start = [0, 0, 0, 0, 0, 0, 0]
+    goal = [Config.GOAL_X, Config.GOAL_Y, airplane_node.state_info[2]+5.0, 0, 0, 0, 0]
 
     mpc_airplane.init_decision_variables()
     mpc_airplane.reinit_start_goal(start, goal)
@@ -360,8 +360,6 @@ def main(args=None):
     master = mavutil.mavlink_connection('127.0.0.1:14551')
     master.wait_heartbeat()
 
-
-
     while rclpy.ok():
 
         start = [airplane_node.state_info[0], 
@@ -372,13 +370,6 @@ def main(args=None):
                 airplane_node.state_info[5], 
                 airplane_node.state_info[6]]
 
-        print("start is: ", start)
-
-        # print("roll pitch yaw are: ", 
-        #         np.rad2deg(airplane_node.state_info[3]), 
-        #         np.rad2deg(airplane_node.state_info[4]),
-        #         np.rad2deg(airplane_node.state_info[5])
-        # )
 
         rclpy.spin_once(airplane_node)
 
@@ -388,20 +379,6 @@ def main(args=None):
         end = [Config.GOAL_X, Config.GOAL_Y] 
         error = compute_error(position, end)
         print("error is: ", error)
-
-        # Remove this 
-        # control_info, state_info = get_state_control_info(solution_list)
-        # state_history = get_info_history(state_info, mpc_airplane.n_states)
-        # control_history = get_info_history(control_info, mpc_airplane.n_controls)
-
-        # fig1, ax1 = plt.subplots(figsize=(8,8))
-        # #set plot to equal aspect ratio
-        # ax1.set_aspect('equal')
-        # ax1.set_xlabel('x')
-        # ax1.set_ylabel('y')
-
-        # ax1.plot(state_history[0], state_history[1], 'o-')
-        # plt.show()
 
         #the send attitude target is a command angle 
         x_traj = states[0,:]
@@ -416,35 +393,25 @@ def main(args=None):
         u_psi_traj = controls[2,:]
         v_cmd_traj = controls[3,:]
 
-        # print("psi traj is: ", np.rad2deg(psi_traj))
-        # print("phi traj is: ", np.rad2deg(phi_traj))
-
         #get difference between yaw
         index = 5
         psi_diff = float(psi_traj[index] - airplane_node.state_info[5])
         phi_diff = float(phi_traj[index] - airplane_node.state_info[3])
         
-        # print("psi diff is: ", np.rad2deg(psi_diff))
-        # print("phi diff is: ", np.rad2deg(phi_diff))
-
         send_airspeed_command(master, v_cmd_traj[1])
 
-        print("sending roll angle: ", np.rad2deg(phi_traj[index]))
-        print("sending yaw angle: ", np.rad2deg(psi_traj[index]))
         send_attitude_target(
             master, 
-            # pitch_angle = np.rad2deg(theta_traj[-1]), 
+            pitch_angle = np.rad2deg(theta_traj[index]), 
             roll_angle = np.rad2deg(phi_traj[index]),
             #body_roll_rate=np.rad2deg(phi_traj[index]),
-            # yaw_angle=np.rad2deg(psi_diff),
+            yaw_angle=np.rad2deg(psi_diff),
             thrust=0.5
         )
 
-        # send_attitude_target(
-        #     master,  
-        #     roll_angle = -45,
-        #     yaw_angle=0, 
-        #     thrust=0.5)
+        if error <= 5.0:
+            print("Goal Reached")
+            break
         
         print("\n")
 

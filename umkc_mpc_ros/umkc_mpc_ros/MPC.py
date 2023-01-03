@@ -176,6 +176,99 @@ class MPC():
         return next_t, next_state, next_control
 
 
+    def solve_mpc_real_time_static(self, start, goal):
+        """solve the mpc based on initial and desired location"""
+        n_states = self.model.n_states
+        n_controls = self.model.n_controls
+        
+        self.state_init = ca.DM(start)        # initial state
+        self.state_target = ca.DM(goal)  # target state
+        
+        # self.t0 = t0
+        self.u0 = ca.DM.zeros((self.n_controls, self.N))  # initial control
+        self.X0 = ca.repmat(self.state_init, 1, self.N+1)         # initial state full
+
+        """Jon's advice consider velocity of obstacle at each knot point"""
+        #moving target in the y direction
+        self.state_target = ca.DM(goal) 
+
+        obstacle_history = []
+
+        if Config.OBSTACLE_AVOID:
+            obs_x = Config.OBSTACLE_X
+            obs_y = Config.OBSTACLE_Y
+
+        self.init_solver()
+        self.compute_cost()
+
+        if Config.OBSTACLE_AVOID:
+            """NEEED TO ADD OBSTACLES IN THE LBG AND UBG"""
+            # constraints lower bound added 
+            lbg =  ca.DM.zeros((self.n_states*(self.N+1)+self.N, 1))
+            # -infinity to minimum marign value for obs avoidance  
+            lbg[self.n_states*self.N+n_states:] = -ca.inf 
+            
+            # constraints upper bound
+            ubg  =  ca.DM.zeros((self.n_states*(self.N+1)+self.N, 1))
+            #rob_diam/2 + obs_diam/2 #adding inequality constraints at the end 
+            ubg[self.n_states*self.N+n_states:] = 0 
+
+        elif Config.MULTIPLE_OBSTACLE_AVOID:
+            """NEEED TO ADD OBSTACLES IN THE LBG AND UBG"""
+            # constraints lower bound added 
+            num_constraints = Config.N_OBSTACLES * self.N
+            lbg =  ca.DM.zeros((self.n_states*(self.N+1)+num_constraints, 1))
+            # -infinity to minimum marign value for obs avoidance  
+            lbg[self.n_states*self.N+n_states:] = -ca.inf 
+            
+            # constraints upper bound
+            ubg  =  ca.DM.zeros((self.n_states*(self.N+1)+num_constraints, 1))
+            #rob_diam/2 + obs_diam/2 #adding inequality constraints at the end 
+            ubg[self.n_states*self.N+n_states:] = 0
+
+        else:
+            lbg = ca.DM.zeros((self.n_states*(self.N+1), 1))
+            ubg  =  ca.DM.zeros((self.n_states*(self.N+1), 1))
+
+        args = {
+            'lbg': lbg,  # constraints lower bound
+            'ubg': ubg,  # constraints upper bound
+            'lbx': self.pack_variables_fn(**self.lbx)['flat'],
+            'ubx': self.pack_variables_fn(**self.ubx)['flat'],
+        }
+
+        #this is where you can update the target location
+        args['p'] = ca.vertcat(
+            self.state_init,    # current state
+            self.state_target   # target state
+        )
+        
+        # optimization variable current state
+        args['x0'] = ca.vertcat(
+            ca.reshape(self.X0, n_states*(self.N+1), 1),
+            ca.reshape(self.u0, n_controls*self.N, 1)
+        )
+
+        #this is where we solve
+        self.sol = self.solver(
+            x0=args['x0'],
+            lbx=args['lbx'],
+            ubx=args['ubx'],
+            lbg=args['lbg'],
+            ubg=args['ubg'],
+            p=args['p']
+        )
+
+        #unpack as a matrix
+        self.u = ca.reshape(self.sol['x'][self.n_states * (self.N + 1):], 
+                            self.n_controls, self.N)
+        
+        self.X0 = ca.reshape(self.sol['x'][: n_states * (self.N+1)], 
+                                self.n_states, self.N+1)        
+        
+        #return the controls and states of the system
+        return (self.u, self.X0)
+
     def solve_mpc_real_time(self, start, goal, obstacles_detected=None):
         """solve the mpc based on initial and desired location"""
         n_states = self.model.n_states

@@ -199,7 +199,7 @@ class MPC():
             obs_y = Config.OBSTACLE_Y
 
         self.init_solver()
-        self.compute_cost()
+        # self.compute_cost()
 
         if Config.OBSTACLE_AVOID:
             """NEEED TO ADD OBSTACLES IN THE LBG AND UBG"""

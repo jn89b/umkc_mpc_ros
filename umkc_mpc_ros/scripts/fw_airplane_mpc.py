@@ -31,6 +31,14 @@ from umkc_mpc_ros import quaternion_tools, MPC, Config
 from pymavlink import mavutil
 import pickle as pkl
 
+"""
+Notes about Ardupilot params
+https://github.com/ArduPilot/ardupilot/blob/master/libraries/SITL/SIM_Plane.h
+
+
+
+"""
+
 class AirplaneSimpleModel():
     def __init__(self):
         self.define_states()
@@ -88,7 +96,7 @@ class AirplaneSimpleModel():
         self.phi_fdot = self.u_phi
         self.theta_fdot = self.u_theta
         ###!!!!!! From the PAPER ADD A NEGATIVE SIN BECAUSE OF SIGN CONVENTION!!!!!!!###
-        self.psi_fdot = -(self.g * (ca.tan(self.phi_f) / self.v_cmd))
+        self.psi_fdot = -self.g * (ca.tan(self.phi_f) / self.v_cmd)
         self.airspeed_fdot = self.v_cmd
 
         self.z_dot = ca.vertcat(
@@ -119,13 +127,13 @@ class AirplaneNode(Node):
                                                   'mavros/local_position/odom', self.position_callback, qos_profile=SENSOR_QOS)
 
         # self.state_info = [0,0,0,0,0,0,0,0] #x, y, z, psi, vx, vy, vz, psi_dot
-        self.state_info = [0,  # x
-                           0,  # y
-                           0,  # z
-                           0,  # phi
-                           0,  # theta
-                           0,  # psi
-                           0,  # airspeed
+        self.state_info = [0, # x
+                           0, # y
+                           0, # z
+                           0, # phi
+                           0, # theta
+                           0, # psi
+                           0  # airspeed
                            ]
 
         # publish position
@@ -324,6 +332,7 @@ def main(args=None):
     control_ref_history = []
     obstacle_history = []
     time_history = []
+    throttle_history = []
 
     airplane_node = AirplaneNode()
 
@@ -339,7 +348,7 @@ def main(args=None):
         'u_theta_max': np.deg2rad(20),
         'z_min': 5.0,
         'z_max': 100.0,
-        'v_cmd_min': 13,
+        'v_cmd_min': 15,
         'v_cmd_max': 25,
         'theta_min': np.deg2rad(-25),
         'theta_max': np.deg2rad(10),
@@ -359,24 +368,42 @@ def main(args=None):
         airplane_params=airplane_params
     )
 
-    start = airplane_node.state_info
-    goal = [Config.GOAL_X, Config.GOAL_Y,
-            airplane_node.state_info[2]+5.0, 0, 0, 0, 0]
+    #sleep for 1 second to make sure the node is ready
+    
+    time.sleep(1)
+    rclpy.spin_once(airplane_node)
 
-    mpc_airplane.init_decision_variables()
-    mpc_airplane.reinit_start_goal(start, goal)
-    mpc_airplane.compute_cost()
-    mpc_airplane.init_solver()
-    mpc_airplane.define_bound_constraints()
-    mpc_airplane.add_additional_constraints()
-    controls, states = mpc_airplane.solve_mpc_real_time_static(start, goal)
+    
+    # goal = [Config.GOAL_X, Config.GOAL_Y,
+    #         airplane_node.state_info[2], 0, 0, 0, 0]
 
     master = mavutil.mavlink_connection('127.0.0.1:14551')
     master.wait_heartbeat()
 
     #get the current time
     t0 = time.time()
-    while rclpy.ok():
+
+    t_sim_limit = 30.0 #seconds    
+
+    #while the simulation time is less than the limit
+    
+    while rclpy.ok() and time.time() - t0 < t_sim_limit:
+
+        if airplane_node.state_info[2] == 0:
+            rclpy.spin_once(airplane_node)
+
+            start = airplane_node.state_info
+            goal = [Config.GOAL_X, Config.GOAL_Y,
+                    airplane_node.state_info[2], 0, 0, 0, 0]
+            mpc_airplane.init_decision_variables()
+            mpc_airplane.reinit_start_goal(start, goal)
+            mpc_airplane.compute_cost()
+            mpc_airplane.init_solver()
+            mpc_airplane.define_bound_constraints()
+            mpc_airplane.add_additional_constraints()
+            controls, states = mpc_airplane.solve_mpc_real_time_static(start, goal)
+
+            continue
 
         start = [airplane_node.state_info[0],
                 airplane_node.state_info[1],
@@ -412,35 +439,49 @@ def main(args=None):
         index = 5
         psi_diff = float(psi_traj[index] - airplane_node.state_info[5])
         phi_diff = float(phi_traj[index] - airplane_node.state_info[3])
+        theta_diff = float(theta_traj[index] - airplane_node.state_info[4])
 
+        #refactor this to map with theta setpoint and actual throttle command
+        theta_tolerance = np.deg2rad(5)   
+        if theta_diff >= theta_tolerance:
+            throttle_addition = 0.15 #add 10% throttle
+        elif theta_diff <= -theta_tolerance:
+            throttle_addition = -0.15
+        else:
+            throttle_addition = 0.0 
+        
         send_airspeed_command(master, v_cmd_traj[1])
+
 
         send_attitude_target(
             master,
-            pitch_angle=np.rad2deg(theta_traj[1]),
+            pitch_angle=-np.rad2deg(theta_traj[index]),
             roll_angle=np.rad2deg(phi_traj[index]),
             # body_roll_rate=np.rad2deg(phi_traj[index]),
-            yaw_angle=np.rad2deg(psi_diff),
-            thrust=0.5
+            yaw_angle=np.rad2deg(theta_diff),
+            thrust=0.5 + throttle_addition
         )
 
         state_history.append(start)
         trajectory_ref_history.append([x_traj, y_traj, z_traj, phi_traj, theta_traj, psi_traj])
         control_ref_history.append([u_phi_traj, u_theta_traj, u_psi_traj, v_cmd_traj])
         time_history.append(time.time() - t0)
+        throttle_history.append(0.5 + throttle_addition)
 
-        if error <= Config.OBSTACLE_DIAMETER + 3.0:            
-            
+        if error <= Config.OBSTACLE_DIAMETER + 3.0 or time.time() - t0 >= t_sim_limit:            
+
             #history dictionary 
             history = {
                 'state_history': state_history,
                 'trajectory_ref_history': trajectory_ref_history,
                 'control_ref_history': control_ref_history,
                 'obstacle_history': obstacle_history,
-                'time_history': time_history
+                'time_history': time_history,
+                'throttle_history': throttle_history,
+                'goal': goal
             }
             
-            file_name = 'history.pkl'
+            file_name = 'level_traj.pkl'
         
             # save history
             with open(file_name, 'wb') as f:

@@ -28,7 +28,7 @@ parser.add_argument('--connect',
 args = parser.parse_args()
 
 connection_string = args.connect
-connection_string = '127.0.0.1:14580'
+connection_string = '127.0.0.1:14551'
 sitl = None
 
 # # Start SITL if no connection string specified
@@ -135,11 +135,11 @@ print("Hold position for 3 seconds")
 # print("Move backward")
 # set_attitude(pitch_angle = 5, thrust = 0.5, duration = 3)
 
-print("Move right")
-set_attitude(roll_angle= 30, thrust = 0.25, duration = 10)
+#print("Move right")
+# set_attitude(roll_angle= 30, thrust = 0.25, duration = 10)
 
 print("Move left")
-set_attitude(roll_angle=-30, thrust = 0.25, duration = 10)
+set_attitude(roll_angle=0, pitch_angle = 20, thrust = 0.7, duration = 10)
 
 # print("Control Yaw")
 # set_attitude(yaw_angle= 90, thrust = 0.3, duration = 10)
@@ -151,7 +151,7 @@ set_attitude(roll_angle=-30, thrust = 0.25, duration = 10)
 
 # Close vehicle object before exiting script
 print("Close vehicle object")
-vehicle.close()
+# vehicle.close()
 
 # # Shut down simulator if it was started.
 # if sitl is not None:

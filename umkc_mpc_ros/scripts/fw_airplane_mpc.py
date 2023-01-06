@@ -340,8 +340,8 @@ def main(args=None):
     airplane.set_state_space()
 
     airplane_params = {
-        'u_psi_min': np.deg2rad(-10),
-        'u_psi_max': np.deg2rad(10),
+        'u_psi_min': np.deg2rad(-10), #rates
+        'u_psi_max': np.deg2rad(10), #
         'u_phi_min': np.deg2rad(-20),
         'u_phi_max': np.deg2rad(20),
         'u_theta_min': np.deg2rad(-20),
@@ -361,8 +361,8 @@ def main(args=None):
 
     mpc_airplane = AirplaneSimpleModelMPC(
         model=airplane,
-        N=20,
-        dt_val=0.1,
+        N=15,
+        dt_val=0.25,
         Q=Q,
         R=R,
         airplane_params=airplane_params
@@ -383,7 +383,7 @@ def main(args=None):
     #get the current time
     t0 = time.time()
 
-    t_sim_limit = 30.0 #seconds    
+    t_sim_limit = 50.0 #seconds    
 
     #while the simulation time is less than the limit
     
@@ -436,7 +436,7 @@ def main(args=None):
         v_cmd_traj = controls[3, :]
 
         # get difference between yaw
-        index = 5
+        index = 4
         psi_diff = float(psi_traj[index] - airplane_node.state_info[5])
         phi_diff = float(phi_traj[index] - airplane_node.state_info[3])
         theta_diff = float(theta_traj[index] - airplane_node.state_info[4])
@@ -452,14 +452,12 @@ def main(args=None):
         
         send_airspeed_command(master, v_cmd_traj[1])
 
-
         send_attitude_target(
             master,
             pitch_angle=-np.rad2deg(theta_traj[index]),
-            roll_angle=np.rad2deg(phi_traj[index]),
-            # body_roll_rate=np.rad2deg(phi_traj[index]),
-            yaw_angle=np.rad2deg(theta_diff),
-            thrust=0.5 + throttle_addition
+            roll_angle= np.rad2deg(phi_traj[index]),
+            #yaw_angle= np.rad2deg(psi_diff),
+            thrust=0.5 #- throttle_addition
         )
 
         state_history.append(start)
@@ -471,6 +469,8 @@ def main(args=None):
         if error <= Config.OBSTACLE_DIAMETER + 3.0 or time.time() - t0 >= t_sim_limit:            
 
             #history dictionary 
+            obstacle_history = Config.OBSTACLES
+
             history = {
                 'state_history': state_history,
                 'trajectory_ref_history': trajectory_ref_history,
@@ -481,7 +481,7 @@ def main(args=None):
                 'goal': goal
             }
             
-            file_name = 'level_traj.pkl'
+            file_name = 'test.pkl'
         
             # save history
             with open(file_name, 'wb') as f:

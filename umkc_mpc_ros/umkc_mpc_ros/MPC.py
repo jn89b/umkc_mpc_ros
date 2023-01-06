@@ -19,6 +19,7 @@ class MPC():
 
         self.Q = Q
         self.R = R
+        self.S = 0.25
 
         #cost function
         self.cost_fn = 0
@@ -121,6 +122,12 @@ class MPC():
                         (obs_diameter/2)
 
                     self.g = ca.vertcat(self.g, obs_constraint)
+                
+                    if obstacle == [Config.GOAL_X, Config.GOAL_Y]:
+                        continue
+                    
+                    # self.cost_fn = (self.S* obs_distance)
+
 
     def init_solver(self):
         
@@ -224,7 +231,7 @@ class MPC():
             # constraints upper bound
             ubg  =  ca.DM.zeros((self.n_states*(self.N+1)+num_constraints, 1))
             #rob_diam/2 + obs_diam/2 #adding inequality constraints at the end 
-            ubg[self.n_states*self.N+n_states:] = 0
+            ubg[self.n_states*self.N+n_states:] = -Config.ROBOT_DIAMETER/2 
 
         else:
             lbg = ca.DM.zeros((self.n_states*(self.N+1), 1))
@@ -402,7 +409,7 @@ class MPC():
                 # constraints upper bound
                 ubg  =  ca.DM.zeros((self.n_states*(self.N+1)+num_constraints, 1))
                 #rob_diam/2 + obs_diam/2 #adding inequality constraints at the end 
-                ubg[self.n_states*self.N+n_states:] = 0
+                ubg[self.n_states*self.N+n_states:] = -1
 
             else:
                 lbg = ca.DM.zeros((self.n_states*(self.N+1), 1))

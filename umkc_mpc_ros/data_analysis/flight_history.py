@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
 import os
+import matplotlib.patches as patches
 
 def get_state_control_info(solution):
     """get actual position and control info"""
@@ -54,14 +55,15 @@ def get_info_horizon(info: list, n_info: int) -> list:
 curr_dir = os.getcwd()
 print("Current directory: ", curr_dir)
 folder_dir = curr_dir+'/data/'
-with open(folder_dir+'level_traj.pkl', 'rb') as handle:
+pkl_name = 'obstacle_avoid.pkl'
+with open(folder_dir+pkl_name, 'rb') as handle:
     data = pickle.load(handle)
 
 #load data
 #remove first 10 seconds of data
 index_parse = 5
 control_ref_history = data['control_ref_history'][index_parse:]
-obstacle_history = data['obstacle_history'][index_parse:]
+obstacle_history = data['obstacle_history']
 
 state_history = data['state_history'][index_parse:]
 trajectory_ref_history = data['trajectory_ref_history'][index_parse:]
@@ -75,7 +77,7 @@ theta_rate_cmd = np.rad2deg([np.float64(control[1][idx]) for control in control_
 psi_rate_cmd = np.rad2deg([np.float64(control[2][idx]) for control in control_ref_history])
 airspeed_cmd = [np.float64(control[3][idx]) for control in control_ref_history]
 
-idx_trajectory = 5
+idx_trajectory = 3
 x_trajectory = [np.float64(trajectory[0][idx_trajectory]) for trajectory in trajectory_ref_history]
 y_trajectory = [np.float64(trajectory[1][idx_trajectory]) for trajectory in trajectory_ref_history]
 z_trajectory = [np.float64(trajectory[2][idx_trajectory]) for trajectory in trajectory_ref_history]
@@ -110,12 +112,33 @@ ax.scatter(goal[0], goal[1], goal[2], c='g', marker='o', label='end')
 #plot trajectory
 ax.plot(x_trajectory, y_trajectory, z_trajectory, c='k', label='trajectory')
 
-ax.set_xlabel('X Label')
-ax.set_ylabel('Y Label')
-ax.set_zlabel('Z Label')
+ax.set_xlabel('X meters')
+ax.set_ylabel('Y meters')
+ax.set_zlabel('Z meters')
 
 #set legend
 ax.legend()
+
+
+#plot obstacles as cylinders
+for obstacle in obstacle_history:
+    x = obstacle[0]
+    y = obstacle[1]
+    z = 0
+    radius = 30/2
+    height = 100
+    n_space = 10
+
+    ax.plot_surface(
+        x + radius * np.outer(np.cos(np.linspace(0, 2 * np.pi, n_space)), np.ones(n_space)),
+        y + radius * np.outer(np.sin(np.linspace(0, 2 * np.pi, n_space)), np.ones(n_space)),
+        z + height * np.outer(np.ones(n_space), np.linspace(0, 1, n_space)),
+        color='g',
+        alpha=0.2
+    )
+
+#set equal aspect ratio
+ax.set_aspect('equal')
 
 #%% Plot 3 subplot of roll pitch yaw
 
@@ -161,8 +184,22 @@ axs[3].grid()
 axs[4].grid()
 
 
-
 #title of plot
 fig.suptitle('Control and Reference Tracking')
 
+#%% 
+fig1, ax1 = plt.subplots(figsize=(8,8))
+#set plot to equal aspect ratio
+ax1.set_aspect('equal')
+ax1.set_xlabel('x meters')
+ax1.set_ylabel('y meters')
+
+ax1.plot(x_history, y_history, 'o-')
+ax1.plot(goal[0], goal[1], 'x')
+
+
+for obstacle in obstacle_history:
+    circle = patches.Circle((obstacle[0], obstacle[1]), obstacle[2]/2, 
+        edgecolor='r', facecolor='none')
+    ax1.add_patch(circle)
 

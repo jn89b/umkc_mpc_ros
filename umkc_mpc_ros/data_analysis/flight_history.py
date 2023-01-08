@@ -55,7 +55,7 @@ def get_info_horizon(info: list, n_info: int) -> list:
 curr_dir = os.getcwd()
 print("Current directory: ", curr_dir)
 folder_dir = curr_dir+'/data/'
-pkl_name = 'obstacle_avoid.pkl'
+pkl_name = 'level_flight_obstacles.pkl'
 with open(folder_dir+pkl_name, 'rb') as handle:
     data = pickle.load(handle)
 
@@ -69,15 +69,16 @@ state_history = data['state_history'][index_parse:]
 trajectory_ref_history = data['trajectory_ref_history'][index_parse:]
 time_history = data['time_history'][index_parse:]
 throttle_history = data['throttle_history'][index_parse:]
+theta_pid = -np.rad2deg(data['theta_pid_history'][index_parse:])
 goal = data['goal']
 
-idx = 5
+idx = 4
 phi_rate_cmd = np.rad2deg([np.float64(control[0][idx]) for control in control_ref_history])
 theta_rate_cmd = np.rad2deg([np.float64(control[1][idx]) for control in control_ref_history])
 psi_rate_cmd = np.rad2deg([np.float64(control[2][idx]) for control in control_ref_history])
 airspeed_cmd = [np.float64(control[3][idx]) for control in control_ref_history]
 
-idx_trajectory = 3
+idx_trajectory = 4
 x_trajectory = [np.float64(trajectory[0][idx_trajectory]) for trajectory in trajectory_ref_history]
 y_trajectory = [np.float64(trajectory[1][idx_trajectory]) for trajectory in trajectory_ref_history]
 z_trajectory = [np.float64(trajectory[2][idx_trajectory]) for trajectory in trajectory_ref_history]
@@ -125,7 +126,7 @@ for obstacle in obstacle_history:
     x = obstacle[0]
     y = obstacle[1]
     z = 0
-    radius = 30/2
+    radius = 50/2
     height = 100
     n_space = 10
 
@@ -142,25 +143,26 @@ ax.set_aspect('equal')
 
 #%% Plot 3 subplot of roll pitch yaw
 
-fig, axs = plt.subplots(5, 1)
+fig, axs = plt.subplots(6, 1)
 #share x axis
 
 fig.subplots_adjust(hspace=0)
 axs[0].plot(time_history, phi_history, label='phi')
-axs[0].plot(time_history, phi_rate_cmd, label='phi rate cmd')
+#axs[0].plot(time_history, phi_rate_cmd, label='phi rate cmd')
 axs[0].plot(time_history, phi_trajectory, label='phi reference')
 #set y label
 axs[0].set_ylabel('phi (deg)')
 
 axs[1].plot(time_history, theta_history, label='theta')
-axs[1].plot(time_history, theta_rate_cmd, label='theta rate cmd')
+axs[1].plot(time_history, theta_pid, label='theta pid reference')
+#axs[1].plot(time_history, theta_rate_cmd, label='theta rate cmd')
 axs[1].plot(time_history, theta_trajectory, label='theta reference')
 axs[1].set_ylabel('theta (deg)')
 
 
 axs[2].plot(time_history, psi_history, label='psi')
 axs[2].plot(time_history, psi_trajectory, label='psi reference')
-axs[2].plot(time_history, psi_rate_cmd, label='psi rate cmd')
+#axs[2].plot(time_history, psi_rate_cmd, label='psi rate cmd')
 axs[2].set_ylabel('psi (deg)')
 
 axs[3].plot(time_history, airspeed_history, label='airspeed')
@@ -169,6 +171,11 @@ axs[3].set_ylabel('airspeed (m/s)')
 
 axs[4].plot(time_history, throttle_history, label='throttle')
 axs[4].set_ylabel('throttle')
+
+
+dz_history = np.array(z_history) - goal[2]
+axs[5].plot(time_history, dz_history, label='dz')
+axs[5].set_ylabel('dz (m)')
 
 #set legend
 axs[0].legend()
@@ -182,6 +189,7 @@ axs[1].grid()
 axs[2].grid()
 axs[3].grid()
 axs[4].grid()
+axs[5].grid()
 
 
 #title of plot
@@ -202,4 +210,13 @@ for obstacle in obstacle_history:
     circle = patches.Circle((obstacle[0], obstacle[1]), obstacle[2]/2, 
         edgecolor='r', facecolor='none')
     ax1.add_patch(circle)
+
+
+#%% Plot dz vs time
+fig2, ax2 = plt.subplots()
+
+ax2.set_xlabel('time (s)')
+ax2.set_ylabel('dz (m)')
+ax2.legend()
+
 

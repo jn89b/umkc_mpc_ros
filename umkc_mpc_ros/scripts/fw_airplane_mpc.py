@@ -97,7 +97,8 @@ class AirplaneSimpleModel():
         self.theta_fdot = self.u_theta
         ###!!!!!! From the PAPER ADD A NEGATIVE SIN BECAUSE OF SIGN CONVENTION!!!!!!!###
         self.psi_fdot = -self.g * (ca.tan(self.phi_f) / self.v_cmd)
-        self.airspeed_fdot = self.v_cmd
+        self.airspeed_fdot = self.v_cmd # u  
+
 
         self.z_dot = ca.vertcat(
             self.x_fdot,
@@ -189,7 +190,6 @@ def send_airspeed_command(master, airspeed):
         -1,  # Throttle (-1 indicates no change) %
         0, 0, 0, 0  # ignore other parameters
     )
-    print("airspeed set to: ", airspeed)
 
 
 def to_quaternion(roll=0.0, pitch=0.0, yaw=0.0):
@@ -252,6 +252,30 @@ def set_attitude(master, roll_angle=0.0, pitch_angle=0.0,
                          thrust)
 
 
+class PID():
+    def __init__(self,kp,ki,kd,dt):
+        self.kp = kp
+        self.ki = ki
+        self.kd = kd
+
+        self.dt = dt
+
+        self.error = 0
+
+        self.integral = 0
+
+        self.derivative = 0
+
+        self.last_error = 0
+
+    def compute_gains(self, error) -> float:
+        """compute the PID gains"""
+        self.error = error
+        self.integral = self.last_error + (self.last_error+self.error)*self.dt/2
+        self.derivative = (self.error - self.last_error) / self.dt
+        self.last_error = self.error
+        return self.kp * self.error + self.ki * self.integral + self.kd * self.derivative
+
 class AirplaneSimpleModelMPC(MPC.MPC):
     def __init__(self, model, dt_val: float, N: int,
                  Q: ca.diagcat, R: ca.diagcat, airplane_params):
@@ -274,6 +298,7 @@ class AirplaneSimpleModelMPC(MPC.MPC):
         self.lbx['U'][3, :] = self.airplane_params['v_cmd_min']
         self.ubx['U'][3, :] = self.airplane_params['v_cmd_max']
 
+
         self.lbx['X'][2, :] = self.airplane_params['z_min']
         # self.ubx['X'][2,:] = self.airplane_params['z_max']
 
@@ -283,6 +308,8 @@ class AirplaneSimpleModelMPC(MPC.MPC):
         self.lbx['X'][4, :] = self.airplane_params['theta_min']
         self.ubx['X'][4, :] = self.airplane_params['theta_max']
 
+        # self.lbx['X'][6, :] = self.airplane_params['v_cmd_min']
+        # self.ubx['X'][6, :] = self.airplane_params['v_cmd_max']
 
 def compute_error(init, end):
     return math.dist(init, end)
@@ -323,6 +350,55 @@ def get_info_horizon(info: list, n_info: int) -> list:
     return info_horizon
 
 
+def compute_throttle_output(
+    max_ascent:float, max_descent:float, dz:float, dz_tol=2.0) -> float:
+    """
+    map throttle to desired descent and ascent rate
+
+    max_throttle : 1 
+    min_throttle : 0
+
+    y = mx + b 
+    where y is the output throttle
+    m is the slope of : (max_throttle-min_descent)/(max_throttle-min_throttle)
+    b is the y-intercept: level_throttle 
+
+    if dz is less than dz tolerance we stay level throttle or 0.5 throttle
+
+    :param max_ascent: maximum ascent rate
+
+    :param dz: desired ascent rate
+
+    :return: throttle output
+
+    """
+
+    if abs(dz) <= dz_tol:
+        throttle_output = 0.5
+        print("throttle output", throttle_output)
+
+        return throttle_output
+
+    print(dz)
+    max_throttle_treshold = 0.65 
+    min_throttle_treshold = 0.35
+    
+    level_throttle = 0.5
+    m = level_throttle/max_ascent
+    scale_factor = 1
+    throttle_output = m*dz/scale_factor + level_throttle
+
+    if throttle_output >= max_throttle_treshold:
+        throttle_output = max_throttle_treshold #don't go full throttle
+    elif throttle_output <= min_throttle_treshold:
+        throttle_output = min_throttle_treshold #don't go no throttle
+
+    print("throttle output", throttle_output)
+
+    
+    return throttle_output
+
+
 def main(args=None):
 
     rclpy.init(args=args)
@@ -333,6 +409,7 @@ def main(args=None):
     obstacle_history = []
     time_history = []
     throttle_history = []
+    theta_pid_history = []
 
     airplane_node = AirplaneNode()
 
@@ -342,41 +419,36 @@ def main(args=None):
     airplane_params = {
         'u_psi_min': np.deg2rad(-10), #rates
         'u_psi_max': np.deg2rad(10), #
-        'u_phi_min': np.deg2rad(-20),
-        'u_phi_max': np.deg2rad(20),
+        'u_phi_min': np.deg2rad(-30),
+        'u_phi_max': np.deg2rad(30),
         'u_theta_min': np.deg2rad(-20),
         'u_theta_max': np.deg2rad(20),
         'z_min': 5.0,
         'z_max': 100.0,
-        'v_cmd_min': 15,
-        'v_cmd_max': 25,
+        'v_cmd_min': 18,
+        'v_cmd_max': 22,
         'theta_min': np.deg2rad(-25),
         'theta_max': np.deg2rad(10),
-        'phi_min': np.deg2rad(-45),
-        'phi_max': np.deg2rad(45),
+        'phi_min': np.deg2rad(-55),
+        'phi_max': np.deg2rad(55),
     }
 
     Q = ca.diag([1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0])
-    R = ca.diag([1.0, 1.0, 1.0, 1.0])
+    R = ca.diag([0.5, 0.5, 0.5, 0.5])
 
     mpc_airplane = AirplaneSimpleModelMPC(
         model=airplane,
-        N=15,
-        dt_val=0.25,
+        N=20,
+        dt_val=0.2,
         Q=Q,
         R=R,
         airplane_params=airplane_params
     )
 
-    #sleep for 1 second to make sure the node is ready
-    
+    #sleep for 1 second to make sure the node is ready    
     time.sleep(1)
     rclpy.spin_once(airplane_node)
-
     
-    # goal = [Config.GOAL_X, Config.GOAL_Y,
-    #         airplane_node.state_info[2], 0, 0, 0, 0]
-
     master = mavutil.mavlink_connection('127.0.0.1:14551')
     master.wait_heartbeat()
 
@@ -386,7 +458,13 @@ def main(args=None):
     t_sim_limit = 50.0 #seconds    
 
     #while the simulation time is less than the limit
-    
+    kp = 0.1
+    ki = 0.0
+    kd = 0.0
+
+    v_pid = PID(0.1, 0.0, 0.0, 0.05)
+    theta_pid = PID(0.25, 0.1, 0.0, 0.05)
+
     while rclpy.ok() and time.time() - t0 < t_sim_limit:
 
         if airplane_node.state_info[2] == 0:
@@ -394,7 +472,8 @@ def main(args=None):
 
             start = airplane_node.state_info
             goal = [Config.GOAL_X, Config.GOAL_Y,
-                    airplane_node.state_info[2], 0, 0, 0, 0]
+                    airplane_node.state_info[2]+25.0, 0, 0, 0, airplane_params['v_cmd_min']]
+
             mpc_airplane.init_decision_variables()
             mpc_airplane.reinit_start_goal(start, goal)
             mpc_airplane.compute_cost()
@@ -420,7 +499,6 @@ def main(args=None):
         position = [airplane_node.state_info[0], airplane_node.state_info[1]]
         end = [Config.GOAL_X, Config.GOAL_Y]
         error = compute_error(position, end)
-        print("error is: ", error)
 
         # the send attitude target is a command angle
         x_traj = states[0, :]
@@ -435,37 +513,53 @@ def main(args=None):
         u_psi_traj = controls[2, :]
         v_cmd_traj = controls[3, :]
 
+        #update goal to be the next point in the trajectory
+        goal[3] = airplane_node.state_info[3]
+        goal[4] = airplane_node.state_info[4]
+        goal[5] = airplane_node.state_info[5]
+        goal[6] = airplane_node.state_info[6]
+        
+
         # get difference between yaw
         index = 4
         psi_diff = float(psi_traj[index] - airplane_node.state_info[5])
         phi_diff = float(phi_traj[index] - airplane_node.state_info[3])
-        theta_diff = float(theta_traj[index] - airplane_node.state_info[4])
+        #theta_diff = float(theta_traj[index] - airplane_node.state_info[4])
 
-        #refactor this to map with theta setpoint and actual throttle command
-        theta_tolerance = np.deg2rad(5)   
-        if theta_diff >= theta_tolerance:
-            throttle_addition = 0.15 #add 10% throttle
-        elif theta_diff <= -theta_tolerance:
-            throttle_addition = -0.15
-        else:
-            throttle_addition = 0.0 
+        dz = float(goal[2]- airplane_node.state_info[2])
+        throttle_output = compute_throttle_output(max_ascent=8, max_descent=-4, dz=dz)
         
-        send_airspeed_command(master, v_cmd_traj[1])
+        #compute airspeed error
+        v_error = float(v_cmd_traj[index] - airplane_node.state_info[6])
+
+        #compute pid gain for airspeed
+        v_pid_output = v_pid.compute_gains(v_error)
+        print("pitch setpoint: ", np.rad2deg(v_pid_output))        
+
+        theta_sp = v_pid_output - airplane_node.state_info[4]
+        theta_output = theta_pid.compute_gains(theta_sp)
+
+        print("pitch output command", np.rad2deg(theta_output))
+
+        send_airspeed_command(master, v_cmd_traj[index])
 
         send_attitude_target(
             master,
-            pitch_angle=-np.rad2deg(theta_traj[index]),
+            pitch_angle = -np.rad2deg(theta_traj[index]) ,
             roll_angle= np.rad2deg(phi_traj[index]),
-            #yaw_angle= np.rad2deg(psi_diff),
-            thrust=0.5 #- throttle_addition
+            yaw_angle= np.rad2deg(psi_diff),
+            thrust= throttle_output
         )
 
         state_history.append(start)
         trajectory_ref_history.append([x_traj, y_traj, z_traj, phi_traj, theta_traj, psi_traj])
         control_ref_history.append([u_phi_traj, u_theta_traj, u_psi_traj, v_cmd_traj])
         time_history.append(time.time() - t0)
-        throttle_history.append(0.5 + throttle_addition)
+        throttle_history.append(throttle_output)
+        theta_pid_history.append(theta_output)
 
+
+        print("Error: ", error)
         if error <= Config.OBSTACLE_DIAMETER + 3.0 or time.time() - t0 >= t_sim_limit:            
 
             #history dictionary 
@@ -478,10 +572,11 @@ def main(args=None):
                 'obstacle_history': obstacle_history,
                 'time_history': time_history,
                 'throttle_history': throttle_history,
+                'theta_pid_history': theta_pid_history,
                 'goal': goal
             }
             
-            file_name = 'test.pkl'
+            file_name = 'level_flight_obstacles.pkl'
         
             # save history
             with open(file_name, 'wb') as f:

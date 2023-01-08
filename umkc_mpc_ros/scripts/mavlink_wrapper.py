@@ -23,7 +23,11 @@ while True:
             #print(mav_dict['x'], mav_dict['y'], mav_dict['z'])
             #print(mav_dict['vx'], mav_dict['vy'], mav_dict['vz'])
             #print(mav_dict['ax'], mav_dict['ay'], mav_dict['az'])
-            # print(mav_dict['yaw'], mav_dict['yaw_rate'])
+            #print(mav_dict['yaw'], mav_dict['yaw_rate'])
+            #print(mav_dict['type_mask'])
+            #print(mav_dict['coordinate_frame'])
+            #print(mav_dict['estimator_type'])
+            
     except:
         pass
     time.sleep(0.1)

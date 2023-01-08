@@ -19,7 +19,7 @@ class MPC():
 
         self.Q = Q
         self.R = R
-        self.S = 0.25
+        self.S = 0.05
 
         #cost function
         self.cost_fn = 0
@@ -126,7 +126,7 @@ class MPC():
                     if obstacle == [Config.GOAL_X, Config.GOAL_Y]:
                         continue
                     
-                    # self.cost_fn = (self.S* obs_distance)
+                    self.cost_fn = (self.S* obs_distance)
 
 
     def init_solver(self):

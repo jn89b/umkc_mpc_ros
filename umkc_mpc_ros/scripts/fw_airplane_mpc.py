@@ -121,8 +121,10 @@ class AirplaneNode(Node):
         super().__init__('aircraft_node')
         # self.state_sub = self.create_subscription(State, '/mavros/state', self.state_callback, 10)
 
-        self.global_position_sub = self.create_subscription(mavros.global_position.NavSatFix,
-                                                            '/mavros/global_position/raw/fix', self.global_position_cb, qos_profile=SENSOR_QOS)
+        self.global_position_sub = self.create_subscription(
+            mavros.global_position.NavSatFix,
+            '/mavros/global_position/raw/fix', self.global_position_cb, 
+            qos_profile=SENSOR_QOS)
 
         self.state_sub = self.create_subscription(mavros.local_position.Odometry,
                                                   'mavros/local_position/odom', self.position_callback, qos_profile=SENSOR_QOS)
@@ -417,10 +419,10 @@ def main(args=None):
     airplane.set_state_space()
 
     airplane_params = {
-        'u_psi_min': np.deg2rad(-10), #rates
-        'u_psi_max': np.deg2rad(10), #
-        'u_phi_min': np.deg2rad(-30),
-        'u_phi_max': np.deg2rad(30),
+        'u_psi_min': np.deg2rad(-30), #rates
+        'u_psi_max': np.deg2rad(30), #
+        'u_phi_min': np.deg2rad(-60),
+        'u_phi_max': np.deg2rad(60),
         'u_theta_min': np.deg2rad(-20),
         'u_theta_max': np.deg2rad(20),
         'z_min': 5.0,
@@ -428,13 +430,13 @@ def main(args=None):
         'v_cmd_min': 18,
         'v_cmd_max': 22,
         'theta_min': np.deg2rad(-25),
-        'theta_max': np.deg2rad(10),
+        'theta_max': np.deg2rad(30),
         'phi_min': np.deg2rad(-55),
         'phi_max': np.deg2rad(55),
     }
 
-    Q = ca.diag([1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0])
-    R = ca.diag([0.5, 0.5, 0.5, 0.5])
+    Q = ca.diag([1.0, 1.0, 1.0, 0.5, 0.5, 0.5, 1.0])
+    R = ca.diag([0.5, 0.5, 0.5, 1.0])
 
     mpc_airplane = AirplaneSimpleModelMPC(
         model=airplane,

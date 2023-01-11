@@ -28,8 +28,9 @@ START_Y = 0
 START_PSI = np.deg2rad(0)
 
 ## GOAL
-GOAL_X = 150
-GOAL_Y = 150
+GOAL_X = -75
+GOAL_Y = -75
+GOAL_Z = 50
 GOAL_PSI = 0
 
 #### OBSTACLES ####
@@ -39,7 +40,7 @@ MULTIPLE_OBSTACLE_AVOID = True
 
 OBSTACLE_X = 10
 OBSTACLE_Y = 10         
-OBSTACLE_DIAMETER = 50.0
+OBSTACLE_DIAMETER = 20
 OBSTACLE_VX = 0.0
 OBSTACLE_VY = 0.0
 
@@ -48,7 +49,7 @@ Y_MAX = 100
 X_MIN = -150
 Y_MIN = 0
 
-N_OBSTACLES = 10 # +1 for goal
+N_OBSTACLES = 20 # +1 for goal
 if MULTIPLE_OBSTACLE_AVOID:
     OBSTACLES = create_obstacles(N_OBSTACLES, OBSTACLE_DIAMETER,
         x_min=X_MIN, x_max=X_MAX, y_min=Y_MIN, y_max=Y_MAX) 
@@ -62,3 +63,7 @@ PRINT_LEVEL = 0
 ACCEPT_TOL = 1e-6
 ACCEPT_OBJ_TOL = 1e-6
 PRINT_TIME = 0
+
+
+#Target options
+TARGET_DISCHARGE_RATE = 0.1

@@ -45,3 +45,26 @@ def get_quaternion_from_euler(roll:float, pitch:float, yaw:float) -> list:
   qw = np.cos(roll/2) * np.cos(pitch/2) * np.cos(yaw/2) + np.sin(roll/2) * np.sin(pitch/2) * np.sin(yaw/2)
  
   return [qx, qy, qz, qw]
+
+
+#rotation 3d
+def rot3d(roll, pitch, yaw):
+    R_x = np.array([[1, 0, 0],
+                    [0, np.cos(roll), -np.sin(roll)],
+                    [0, np.sin(roll), np.cos(roll)]])
+
+    R_y = np.array([[np.cos(pitch), 0, np.sin(pitch)],
+                    [0, 1, 0],
+                    [-np.sin(pitch), 0, np.cos(pitch)]])
+
+    R_z = np.array([[np.cos(yaw), -np.sin(yaw), 0],
+                    [np.sin(yaw), np.cos(yaw), 0],
+                    [0, 0, 1]])
+
+    R = np.dot(R_x, np.dot(R_y, R_z))
+    return R
+
+def rot2d(psi):
+    return np.array([[np.cos(psi), -np.sin(psi)],
+                     [np.sin(psi), np.cos(psi)]])
+

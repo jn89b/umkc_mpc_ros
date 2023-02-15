@@ -46,27 +46,33 @@ from std_msgs.msg import Float64
 import mavros
 from mavros_msgs.msg import State, AttitudeTarget, PositionTarget
 from mavros.base import SENSOR_QOS
+from tf2_ros.buffer import Buffer
+from tf2_ros.transform_listener import TransformListener
+from tf2_ros import LookupException, ConnectivityException, ExtrapolationException
 
+"""
+Relative frame of effector 
+"""
 
 class Effector(Node):
     """"""
     def __init__(self, effector_config:dict, 
-        offset_location:np.ndarray, euler_orientation:np.ndarray, 
-        parent_frame:str, child_frame:str,
         node_name='effector_node', hz=30.0):
         
         super().__init__(node_name)
 
         self.effector_config = effector_config
-        self.offset_location = offset_location
-        self.euler_orientation = euler_orientation
-        self.quaternion = quaternion_tools.get_quaternion_from_euler(
-             self.euler_orientation[0],
-             self.euler_orientation[1], 
-             self.euler_orientation[2])
 
-        self.parent_frame = parent_frame
-        self.child_frame = child_frame
+        self.declare_parameter('world_frame', 'map')
+        self.declare_parameter('effector_frame', 'effector_frame')
+        self.declare_parameter('rate', 30.0)
+        self.declare_parameter('pickle_file_name', 'effector.pkl')
+
+        self.parent_frame = self.get_parameter('world_frame').get_parameter_value().string_value
+        self.child_frame = self.get_parameter('effector_frame').get_parameter_value().string_value
+        self.rate = self.get_parameter('rate').get_parameter_value().double_value
+
+        self.pkl_file_name = self.get_parameter('pickle_file_name').get_parameter_value().string_value
 
         #publish float32 message to effector topic
         self.effector_pub = self.create_publisher(Float64, '/damage_info', 10)
@@ -88,8 +94,9 @@ class Effector(Node):
         else:
             raise Exception("Effector type not recognized")
 
-        self.effector_broadcaster = TransformBroadcaster(self)
-        self.timer = self.create_timer(1/hz, self.broadcastEffectorLocation)
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
+        self.timer = self.create_timer(1.0/self.rate, self.refPointCallback)
 
         self.uav_pose_sub = self.create_subscription(
             mavros.local_position.PoseStamped, 
@@ -102,27 +109,57 @@ class Effector(Node):
         self.uav_location = None
         self.location = None
         self.orientation = None
+        self.rotated_offset_location = None
+        self.effector_location = None
 
         self.target_location = [Config.GOAL_X, Config.GOAL_Y, Config.GOAL_Z]
     
-    def broadcastEffectorLocation(self) -> None:
-        """
-        Publish the effector location
-        """
-        t = TransformStamped()
-        t.header.stamp = self.get_clock().now().to_msg()
-        t.header.frame_id = self.parent_frame
-        t.child_frame_id = self.child_frame
-        t.transform.translation.x = float(self.offset_location[0])
-        t.transform.translation.y = float(self.offset_location[1])
-        t.transform.translation.z = float(self.offset_location[2])
-        t.transform.rotation.x = self.quaternion[0]
-        t.transform.rotation.y = self.quaternion[1]
-        t.transform.rotation.z = self.quaternion[2]
-        t.transform.rotation.w = self.quaternion[3]
+    def refPointCallback(self): 
+        try: 
+            t = self.tf_buffer.lookup_transform(
+                self.parent_frame, 
+                self.child_frame, 
+                rclpy.time.Time(),
+                timeout=rclpy.duration.Duration(seconds=0.1)
+            )
 
-        self.effector_broadcaster.sendTransform(t)
+            self.ref_location = np.array([t.transform.translation.x,
+                                    t.transform.translation.y,
+                                    t.transform.translation.z])
+
+            self.ref_orientation = np.array([t.transform.rotation.x,
+                                    t.transform.rotation.y,
+                                    t.transform.rotation.z,
+                                    t.transform.rotation.w]) 
+                                    
+            #compute rotation matrix based on offset location
+            self.setEffectorLocation(self.ref_location, self.ref_orientation)
+
+            ref_roll,ref_pitch, ref_yaw = quaternion_tools.euler_from_quaternion(
+                self.ref_orientation[0], self.ref_orientation[1], 
+                self.ref_orientation[2], self.ref_orientation[3])
+
+            #check if target is within effector
+            if self.isTargetWithinEffector(self.target_location, self.ref_location, ref_pitch, ref_yaw):
+                
+                target_distance = np.linalg.norm(self.ref_location - self.target_location)    
+                power_density =  self.computePowerDensity(target_distance)
+
+                #create message for Float64
+                power_density_msg = Float64()
+                power_density_msg.data = power_density
+                self.effector_pub.publish(power_density_msg)
+
+        except (LookupException, ConnectivityException, ExtrapolationException):
+            self.get_logger().info('transform not ready')
+            
+            #log parent frame
+            self.get_logger().info('parent frame: {}'.format(self.parent_frame))
+            self.get_logger().info('child frame: {}'.format(self.child_frame))
+
         
+        return 
+            
 
     def createPyramid(self, angle, distance) -> np.ndarray:
         angle = angle/2
@@ -146,51 +183,8 @@ class Effector(Node):
                              msg.pose.position.y, 
                              msg.pose.position.z]
 
-        #compute rotation matrix based on offset location
 
-        self.ref_location, self.ref_orientation = self.getRefPoint(msg.pose)
-        #get the effector location
-        self.getEffectorLocation(self.ref_location, self.ref_orientation)
-
-        ref_roll,ref_pitch, ref_yaw = quaternion_tools.euler_from_quaternion(
-            self.ref_orientation[0], self.ref_orientation[1], 
-            self.ref_orientation[2], self.ref_orientation[3])
-
-        #check if target is within effector
-        if self.isTargetWithinEffector(self.target_location, self.ref_location, ref_pitch, ref_yaw):
-            
-            target_distance = np.linalg.norm(self.ref_location - self.target_location)    
-            power_density =  self.computePowerDensity(target_distance)
-
-            #create message for Float64
-            power_density_msg = Float64()
-            power_density_msg.data = power_density
-            self.effector_pub.publish(power_density_msg)
-        
-    def getRefPoint(self, uav_pose:Pose) -> np.ndarray:
-        """
-        Compute the Effector reference point
-        """
-        location = np.array([uav_pose.position.x, 
-                            uav_pose.position.y, 
-                            uav_pose.position.z]) + self.offset_location
-        
-        #check if euler orientations are all 0
-        if self.euler_orientation[0] == 0 and self.euler_orientation[1] == 0 and self.euler_orientation[2] == 0:
-            orientation = np.array([uav_pose.orientation.x, 
-                                    uav_pose.orientation.y, 
-                                    uav_pose.orientation.z, 
-                                    uav_pose.orientation.w])
-        else:
-            orientation = np.array([uav_pose.orientation.x, 
-                                    uav_pose.orientation.y, 
-                                    uav_pose.orientation.z, 
-                                    uav_pose.orientation.w]) * self.quaternion
-            
-        return location, orientation
-
-
-    def getEffectorLocation(self, ref_location:np.ndarray, ref_orientation:np.ndarray) -> None:
+    def setEffectorLocation(self, ref_location:np.ndarray, ref_orientation:np.ndarray) -> None:
         """
         Get the effector location
         """
@@ -208,6 +202,7 @@ class Effector(Node):
         #combine effector location with ref location
         self.effector_location = np.vstack((effector_location, ref_location))
 
+        print("effector_location: ", self.effector_location)
 
     def isTargetWithinEffector(self, target_location:np.ndarray, ref_location:np.ndarray, 
         ref_pitch:float, ref_yaw:float) -> bool:
@@ -246,7 +241,6 @@ class Effector(Node):
         return  float(self.effector_power / (4*np.pi*target_distance**2))
 
         
-        
 def main(args=None):
 
     rclpy.init(args=args)
@@ -259,18 +253,10 @@ def main(args=None):
     }
 
     #offset location based on uav frame in ENU convention
-    offset_location = np.array([0 , 0, 0])
-    
 
-    #x,y,z rotation in radians
-    euler_orientation = np.array([0,0, 0])
-    parent_frame = 'map'
-    child_frame = 'nose_effector'
-    FRP_freq = 10
 
     effector = Effector(
-        effector_config, offset_location, euler_orientation, 
-        parent_frame, child_frame, 'effector', FRP_freq)
+        effector_config,'effector')
     
     #empty array to store uav location 
     uav_location = []
@@ -280,7 +266,6 @@ def main(args=None):
     #set timer condition
     t0 = 0
     
-
     #current time of node
     t = effector.get_clock().now().nanoseconds * 1e-9
     
@@ -293,23 +278,21 @@ def main(args=None):
 
         t = effector.get_clock().now().nanoseconds * 1e-9
         
-        uav_wing = effector.uav_location + offset_location
+        if effector.effector_location is not None:
+            uav_location.append((effector.uav_location))
+            effector_location.append((effector.effector_location))
 
-        uav_location.append((effector.uav_location))
-        effector_location.append((effector.effector_location))
-        uav_wing_location.append((uav_wing))
-
-    #save uav locaion and effector location to pkl file
+    #save uav location and effector location to pkl file
     info = {
         'uav_location': uav_location,
         'effector_location': effector_location,
         'uav_wing_location': uav_wing_location
     }
 
-    with open('uav_location.pkl', 'wb') as f:
+    with open(effector.pkl_file_name, 'wb') as f:
         pkl.dump(info, f)
 
-    print("killing node")
+    print("killing node saved to pkl file", effector.pkl_file_name)
     effector.destroy_node()
     rclpy.shutdown()
 

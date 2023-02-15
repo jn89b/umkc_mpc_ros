@@ -15,7 +15,6 @@ from geometry_msgs.msg import PoseStamped, TwistStamped
 from mavros_msgs.msg import State, AttitudeTarget, PositionTarget
 from mavros_msgs.srv import CommandBool, SetMode
 from umkc_mpc_ros import quaternion_tools
-
 from mavros.base import SENSOR_QOS
 
 vel_min = 15
@@ -129,7 +128,6 @@ class FlatQuadcopterModel():
         
         
 class MPC():
-    
     def __init__(self, model, dt_val, N):
         self.model = model
         self.f = model.function        

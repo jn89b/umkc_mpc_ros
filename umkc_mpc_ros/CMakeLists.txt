@@ -47,6 +47,7 @@ install(PROGRAMS
   scripts/turtle_prototype.py
   scripts/fw_airplane_mpc.py
   scripts/effector_node.py
+  scripts/effector_frame.py
   DESTINATION lib/${PROJECT_NAME}
 )
 ament_package()
